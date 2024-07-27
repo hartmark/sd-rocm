@@ -1,0 +1,22 @@
+services:
+  stable-diffusion-webui:
+    image: rocm/pytorch:latest
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    command: ["/conf/startup-comfyui.sh"]
+    devices:
+      - "/dev/kfd:/dev/kfd"
+      - "/dev/dri:/dev/dri"
+    ipc: host
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - .:/workspace
+      - ./data/home:/root
+      - ./data/stable-diffusion:/stable-diffusion
+      - ./data/comfyui:/comfyui
+      - ./data/sd-webui:/sd-webui
+      - ./conf:/conf
