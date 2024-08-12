@@ -14,21 +14,30 @@ if [ ! -f "$MARKER_FILE" ]; then
 
     conda init
     source /root/.bashrc
-    conda activate py_3.9
+
+    conda create -n python3.12.2 python=3.12.2
+
+    conda activate python3.12.2
     conda update -n base -c defaults conda -y
 
     conda install -n base -c conda-forge mamba -y
 
     # install lates ROCm for performance boost
-    pip install -U pip
+    pip install -U pip --root-user-action=ignore
     pip install einops transformers torchsde kornia spandrel onnxruntime onnxruntime-gpu \
-	numba==0.60.0 numpy==1.26.4 ultralytics \
+	numba==0.60.0 numpy==1.26.4 ultralytics simpleeval aiohttp \
 	--root-user-action=ignore
+
+#    pip install --pre \
+#	torch==2.5.0.dev20240804+rocm6.1 \
+#	torchaudio==2.4.0.dev20240804+rocm6.1 \
+#	torchvision==0.20.0.dev20240804+rocm6.1 \
+#	safetensors \
+#	--index-url https://download.pytorch.org/whl/nightly/rocm6.1 \
+#	--root-user-action=ignore
+
     pip install --pre \
-	torch==2.5.0.dev20240724+rocm6.1 \
-	torchaudio==2.4.0.dev20240725+rocm6.1 \
-	torchvision==0.20.0.dev20240725+rocm6.1 \
-	safetensors \
+	torch torchaudio torchvision safetensors \
 	--index-url https://download.pytorch.org/whl/nightly/rocm6.1 \
 	--root-user-action=ignore
 
@@ -40,6 +49,7 @@ if [ ! -f "$MARKER_FILE" ]; then
     # =======================
     git clone https://github.com/comfyanonymous/ComfyUI /comfyui
     cd /comfyui
+    git pull
 
     # use same models as webUI
     rm -r /comfyui/models/checkpoints
@@ -57,10 +67,19 @@ else
     # Activate the environment
     conda init
     source /root/.bashrc
-    conda activate py_3.9
+    conda activate python3.12.2
 fi
 
 torchinfo
 
 cd /comfyui
-HSA_OVERRIDE_GFX_VERSION=11.0.0 python main.py --listen 0.0.0.0 --port 80
+git pull
+
+# fix for random lockups and crashes due to VRAM usage
+# https://www.reddit.com/r/comfyui/comments/192hqig/comment/kh3nkj2/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
+#PYTORCH_HIP_ALLOC_CONF=expandable_segments:True,garbage_collection_threshold:0.6,max_split_size_mb:1024 
+PYTORCH_HIP_ALLOC_CONF=expandable_segments:True HSA_OVERRIDE_GFX_VERSION=11.0.0 python main.py --listen 0.0.0.0 --port 80 --use-split-cross-attention --front-end-version Comfy-Org/ComfyUI_frontend@latest --lowvram
+
+# the command above should normally never exit
+# keep the container up so we might get a chance to fix any issues
+sleep 1d
