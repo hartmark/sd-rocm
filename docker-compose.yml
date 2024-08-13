@@ -8,6 +8,8 @@ services:
     devices:
       - "/dev/kfd:/dev/kfd"
       - "/dev/dri:/dev/dri"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ipc: host
     pid: "host"
     cap_add:
@@ -17,7 +19,6 @@ services:
     volumes:
       - .:/workspace
       - ./data/home:/root
-      - ./data/stable-diffusion:/stable-diffusion
+      - ./data/checkpoints:/checkpoints
       - ./data/comfyui:/comfyui
-      - ./data/sd-webui:/sd-webui
       - ./conf:/conf
