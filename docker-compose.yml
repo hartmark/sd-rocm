@@ -1,8 +1,10 @@
 services:
-  stable-diffusion-webui:
+  stable-diffusion-comfyui:
     image: rocm/pytorch:latest
     ports:
       - "80:80"
+    environment:
+      DOCKER_INSTANCE: comfyui
     restart: unless-stopped
     command: ["/conf/startup-comfyui.sh"]
     devices:
@@ -10,8 +12,6 @@ services:
       - "/dev/dri:/dev/dri"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ipc: host
-    pid: "host"
     cap_add:
       - SYS_PTRACE
     security_opt:
@@ -21,4 +21,28 @@ services:
       - ./data/home:/root
       - ./data/checkpoints:/checkpoints
       - ./data/comfyui:/comfyui
+      - ./conf:/conf
+
+  stable-diffusion-webui:
+    image: rocm/pytorch:latest
+    ports:
+      - "81:81"
+    environment:
+      DOCKER_INSTANCE: webui
+    restart: unless-stopped
+    command: ["/conf/startup-webui.sh"]
+    devices:
+      - "/dev/kfd:/dev/kfd"
+      - "/dev/dri:/dev/dri"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - .:/workspace
+      - ./data/home:/root
+      - ./data/checkpoints:/checkpoints
+      - ./data/sd-webui:/sd-webui
       - ./conf:/conf
