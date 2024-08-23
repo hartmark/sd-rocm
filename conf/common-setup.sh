@@ -30,13 +30,12 @@ if [ ! -f "$MARKER_FILE" ]; then
 
     pip3 install --upgrade pip
 
-    # use ROCm torch version
     echo "Install ROCm version of torch"
     echo "===================="
     pip3 uninstall torch torchaudio torchvision safetensors -y
     pip3 install --pre \
         torch torchaudio torchvision safetensors \
-        --index-url https://download.pytorch.org/whl/nightly/rocm6.1 \
+        --index-url https://download.pytorch.org/whl/nightly/rocm6.2 \
         --root-user-action=ignore
 
 #    echo "install ROCm optimized bitsandbytes"
