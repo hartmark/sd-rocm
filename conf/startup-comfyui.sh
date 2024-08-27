@@ -33,9 +33,11 @@ if [ ! -f "$MARKER_FILE" ]; then
 fi
 
 cd /comfyui
-#git pull
+git pull
 
-PYTORCH_HIP_ALLOC_CONF=expandable_segments:True python main.py --listen 0.0.0.0 --port 80 --use-split-cross-attention --front-end-version Comfy-Org/ComfyUI_frontend@latest --reserve-vram 6
+python main.py --listen 0.0.0.0 --port 80 \
+	--front-end-version Comfy-Org/ComfyUI_frontend@latest \
+	--use-split-cross-attention --reserve-vram 6
 
 # the command above should normally never exit
 # keep the container up so we might get a chance to fix any issues

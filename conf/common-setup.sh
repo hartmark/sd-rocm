@@ -3,6 +3,7 @@
 # NOTE: This is to be run in docker container, not the host
 
 GFX_NAME=$(rocminfo | grep -m 1 -E gfx[^0]{1} | sed -e 's/ *Name: *//' | awk '{$1=$1; print}')
+echo "GFX_NAME = $GFX_NAME"
 
 case "$GFX_NAME" in
     gfx1101 | gfx1100)
