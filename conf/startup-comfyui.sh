@@ -35,9 +35,13 @@ fi
 cd /comfyui
 git pull
 
+# https://github.com/pytorch/pytorch/issues/138067
+export DISABLE_ADDMM_CUDA_LT=1
+
 python main.py --listen 0.0.0.0 --port 80 \
 	--front-end-version Comfy-Org/ComfyUI_frontend@latest \
-	--use-split-cross-attention --reserve-vram 6
+	--reserve-vram 6
+#	--force-fp32 --fp32-vae --use-split-cross-attention --lowvram
 
 # the command above should normally never exit
 # keep the container up so we might get a chance to fix any issues

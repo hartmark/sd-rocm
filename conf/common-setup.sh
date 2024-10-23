@@ -33,11 +33,14 @@ if [ ! -f "$MARKER_FILE" ]; then
 
     echo "Install ROCm version of torch"
     echo "===================="
-    pip3 uninstall torch torchaudio torchvision safetensors -y
+    pip3 uninstall torch torchaudio torchvision safetensors pytorch_triton -y
     pip3 install --pre \
         torch torchaudio torchvision safetensors \
         --index-url https://download.pytorch.org/whl/nightly/rocm6.2 \
         --root-user-action=ignore
+
+# Not working
+#    pip3 install torch==2.3.0 torchvision==0.18.0 pytorch_triton -f https://repo.radeon.com/rocm/manylinux/rocm-rel-6.2/
 
 #    echo "install ROCm optimized bitsandbytes"
 #    echo "===================="

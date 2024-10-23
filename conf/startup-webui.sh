@@ -27,7 +27,7 @@ fi
 cd /sd-webui
 git pull
 
-python3 launch.py --skip-python-version-check --enable-insecure-extension-access --listen --port 81 --api --precision full --no-half
+python3 launch.py --skip-python-version-check --enable-insecure-extension-access --listen --port 81 --api --precision full --no-half --no-half-vae
 
 # the command above should normally never exit
 # keep the container up so we might get a chance to fix any issues
