@@ -26,7 +26,22 @@ if [ ! -f "$MARKER_FILE" ]; then
     echo "===================="   
 
     cd
-    /opt/conda/bin/python3 -m venv "venv-$DOCKER_INSTANCE"
+
+    # install python 3.10
+    curl https://pyenv.run | bash
+
+    export PATH="$HOME/.pyenv/bin:$PATH"
+    eval "$(pyenv init --path)"
+    eval "$(pyenv init -)"
+    
+    pyenv install 3.10.15
+    pyenv global 3.10.15
+
+    /root/.pyenv/shims/python3.10 -m venv "venv-$DOCKER_INSTANCE"
+
+    # python 3.12
+#    /opt/conda/bin/python3 -m venv "venv-$DOCKER_INSTANCE"
+
     source "venv-$DOCKER_INSTANCE/bin/activate"
 
     pip3 install --upgrade pip
@@ -34,13 +49,19 @@ if [ ! -f "$MARKER_FILE" ]; then
     echo "Install ROCm version of torch"
     echo "===================="
     pip3 uninstall torch torchaudio torchvision safetensors pytorch_triton -y
+
+    # ROCm nightly
+#    pip3 install --pre \
+#        torch torchaudio torchvision safetensors \
+#        --index-url https://download.pytorch.org/whl/nightly/rocm6.2 \
+#        --root-user-action=ignore
+
+    # ROCm release version
+    pip3 install torch==2.3.0 torchvision==0.18.0 pytorch_triton -f https://repo.radeon.com/rocm/manylinux/rocm-rel-6.2/
     pip3 install --pre \
-        torch torchaudio torchvision safetensors \
+        safetensors \
         --index-url https://download.pytorch.org/whl/nightly/rocm6.2 \
         --root-user-action=ignore
-
-# Not working
-#    pip3 install torch==2.3.0 torchvision==0.18.0 pytorch_triton -f https://repo.radeon.com/rocm/manylinux/rocm-rel-6.2/
 
 #    echo "install ROCm optimized bitsandbytes"
 #    echo "===================="
