@@ -1,8 +1,8 @@
 #!/bin/bash
+set -e
+#set -x  # enable debug mode
+
 echo "Docker instance: ${DOCKER_INSTANCE}"
-PYTHON_VERSION="3.10"
-ROCM_VERSION="release"
-MARKER_FILE="/root/.venv_${DOCKER_INSTANCE}_${PYTHON_VERSION}_initialized"
 
 # cleanup pip cache, it can grow quite big if left unchecked
 #rm -fr /root/.cache/pip
@@ -53,36 +53,49 @@ EOF
 }
 
 activate_venv() {
+  MARKER_FILE="${ROOT_DIR}/.venv_${DOCKER_INSTANCE}_${PYTHON_VERSION}_initialized"
+
   if [ ! -f "${MARKER_FILE}" ]; then
     echo "venv not initialized. Initializing now..."
     echo "===================="   
-  
-    case "$PYTHON_VERSION" in
-      3.10)
-        rm -r /root/.pyenv
+
+echo "${ROOT_DIR} ass"
+
+    # only install pyenv on docker container
+    if [[ "${DOCKER_INSTANCE}" != local-* ]]; then
+      if [[ ! -d "${ROOT_DIR}/.pyenv" ]]; then
         curl https://pyenv.run | bash
-      
-        export PATH="${HOME}/.pyenv/bin:${PATH}"
         eval "$(pyenv init --path)"
         eval "$(pyenv init -)"
-        
-        apt install libssl-dev -y
-        apt autoremove
-        
-        pyenv install 3.10.15
-        pyenv global 3.10.15
+      fi
 
-        export PATH="/root/.pyenv/versions/3.10.15/bin:${PATH}"
-      
-        /root/.pyenv/shims/python3.10 -m venv "/root/venv-${DOCKER_INSTANCE}-${PYTHON_VERSION}"
+      apt install libssl-dev -y
+      apt autoremove
+    fi
+
+    case "${PYTHON_VERSION}" in
+      3.10)
+        # https://peps.python.org/pep-0619/
+        PYTHON_VERSION_FULL="${PYTHON_VERSION}.16"
         ;;
       3.12)
-        /opt/conda/bin/python3 -m venv "/root/venv-${DOCKER_INSTANCE}-${PYTHON_VERSION}"
+        # https://peps.python.org/pep-0693/
+        PYTHON_VERSION_FULL="${PYTHON_VERSION}.8"
         ;;
       *)
         echo "Unsupported python version ${PYTHON_VERSION}" >&2
         exit 1
     esac
+
+    export PATH="${HOME}/.pyenv/bin:${PATH}"
+
+    pyenv install "${PYTHON_VERSION_FULL}" --skip-existing
+    pyenv global "${PYTHON_VERSION_FULL}"
+
+    export PATH="${HOME}/.pyenv/versions/${PYTHON_VERSION_FULL}/bin:${PATH}"
+      
+    "${HOME}/.pyenv/shims/python${PYTHON_VERSION}" -m venv "${ROOT_DIR}/venv-${DOCKER_INSTANCE}-${PYTHON_VERSION}"
+
   
     echo "venv environment initialization complete."
     echo "===================="
@@ -94,7 +107,7 @@ activate_venv() {
   fi
 
   # shellcheck disable=SC1090
-  source "/root/venv-${DOCKER_INSTANCE}-${PYTHON_VERSION}/bin/activate"
+  source "${ROOT_DIR}/venv-${DOCKER_INSTANCE}-${PYTHON_VERSION}/bin/activate"
   
   pip3 install --upgrade pip --root-user-action=ignore
 }
@@ -108,15 +121,17 @@ install_rocm_torch() {
     nightly)
       pip3 install --pre \
           torch torchaudio torchvision safetensors \
-          --index-url https://download.pytorch.org/whl/nightly/rocm6.2 \
+          --index-url https://download.pytorch.org/whl/nightly/rocm6.3 \
           --root-user-action=ignore
       ;;
     release)
-      pip3 install torch==2.3.0 torchvision==0.18.0 pytorch_triton -f https://repo.radeon.com/rocm/manylinux/rocm-rel-6.2
+      pip3 uninstall triton -y
+      pip3 install torch==2.4.0 torchaudio torchvision==0.19.0 pytorch_triton -f https://repo.radeon.com/rocm/manylinux/rocm-rel-6.3.1
       pip3 install --pre \
           safetensors \
-          --index-url https://download.pytorch.org/whl/nightly/rocm6.2 \
+          --index-url https://download.pytorch.org/whl/nightly/rocm6.3 \
           --root-user-action=ignore
+      pip install triton --root-user-action=ignore
       ;;
     *)
       echo "unsupported ROCm version ${ROCM_VERSION}" >&2
@@ -125,29 +140,109 @@ install_rocm_torch() {
   esac
   
   pip3 install numpy==1.26.4
-  
-  # TODO: investigate if this still works  
-  # install_optimized_bitsandbytes()
 }
 
+setup_comfyui() {
+  MARKER_FILE="${ROOT_DIR}/.${DOCKER_INSTANCE}_${PYTHON_VERSION}_initialized"
 
-install_optimized_bitsandbytes() {
-  echo "install ROCm optimized bitsandbytes"
-  echo "===================="
-  git clone --recurse https://github.com/bitsandbytes-foundation/bitsandbytes.git /bitsandbytes
-  cd /bitsandbytes
-  git checkout multi-backend-refactor
+  if [ ! -f "$MARKER_FILE" ]; then
+    echo "comfyui not initialized. Initializing now..."
+    echo "===================="
+
+    if [ ! -d "${ROOT_DIR}/comfyui" ]; then
+      git clone https://github.com/comfyanonymous/ComfyUI "${ROOT_DIR}/comfyui"
+    fi
+
+    cd "${ROOT_DIR}/comfyui"
+    git pull
+
+    pip3 install -r requirements.txt
+
+    install_rocm_torch
+
+    # use shared model folder
+    if [ -d "${ROOT_DIR}/comfyui/models/checkpoints" ]; then
+      rm -r "${ROOT_DIR}/comfyui/models/checkpoints"
+    fi
+    ln -sf ../../../checkpoints "${ROOT_DIR}/comfyui/models/checkpoints"
+
+    if [ ! -d "${ROOT_DIR}/comfyui/custom_nodes" ]; then
+      git clone https://github.com/ltdrdata/ComfyUI-Manager "${ROOT_DIR}/comfyui/custom_nodes"
+    fi
+
+    # https://github.com/comfyanonymous/ComfyUI?tab=readme-ov-file#how-to-show-high-quality-previews
+    cd "${ROOT_DIR}/comfyui/models/vae_approx"
+    wget -c https://github.com/madebyollin/taesd/raw/main/taesd_decoder.pth
+    wget -c https://github.com/madebyollin/taesd/raw/main/taesdxl_decoder.pth
+
+    echo "comfyui environment initialization complete."
+    echo "===================="
+    touch "$MARKER_FILE"
+  fi
+}
+
+setup_webui() {
+  MARKER_FILE="${ROOT_DIR}/.${DOCKER_INSTANCE}_${PYTHON_VERSION}_initialized"
+
+  if [ ! -f "$MARKER_FILE" ]; then
+    echo "webui environment not initialized. Initializing now..."
+    echo "===================="
+
+    if [ ! -d "${ROOT_DIR}/sd-webui" ]; then
+    # Uncomment to use old Automatic1111
+#    git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui "${ROOT_DIR}/sd-webui"
+    git clone https://github.com/lllyasviel/stable-diffusion-webui-forge "${ROOT_DIR}/sd-webui"
+    fi
+
+    cd "${ROOT_DIR}/sd-webui"
+    git pull
+
+    pip install -r requirements_versions.txt
+    install_rocm_torch
+
+    # use shared model folder
+        if [ -d "${ROOT_DIR}/sd-webui/models/Stable-diffusion" ]; then
+      rm -r "${ROOT_DIR}/sd-webui/models/Stable-diffusion"
+    fi
+    ln -sf ../../../checkpoints "${ROOT_DIR}/sd-webui/models/Stable-diffusion"
+
+    # libtif.so.5 is needed to run but libtif.so.6 is installed
+    sudo ln -s /usr/lib/x86_64-linux-gnu/libtiff.so /usr/lib/x86_64-linux-gnu/libtiff.so.5
+
+    echo "webui environment initialization complete."
+    echo "===================="
+    touch "$MARKER_FILE"
+  fi
+}
+
+launch_comfyui() {
+  cd "${ROOT_DIR}/comfyui"
   git pull
-  
-  # repo above are missing commits made in main branch, this repo have main merged into it.
-  # see: https://github.com/comfyanonymous/ComfyUI_bitsandbytes_NF4/issues/12#issuecomment-2288089151
-  git remote add merge-fix https://github.com/initialxy/bitsandbytes.git
-  git fetch merge-fix
-  git checkout merge-fix/multi-backend-refactor
-  
-  pip3 install -r requirements-dev.txt
-  cmake -DCOMPUTE_BACKEND=hip -DBNB_ROCM_ARCH="$GFX_NAME" -S .
-  make clean
-  make -j$((`nproc`+1))
-  pip install .
+
+  # https://github.com/pytorch/pytorch/issues/138067
+  export DISABLE_ADDMM_CUDA_LT=1
+
+  # https://rocm.blogs.amd.com/artificial-intelligence/pytorch-tunableop/README.html
+  # Memory access faults like these comes if I enable this
+  # stable-diffusion-comfyui-1  | Memory access fault by GPU node-1 (Agent handle: 0x2a6c58a0) on address 0x77b317e44000. Reason: Page not present or supervisor privilege.
+  # export PYTORCH_TUNABLEOP_ENABLED=1
+
+  # https://pytorch.org/docs/stable/notes/cuda.html#environment-variables
+  #export PYTORCH_CUDA_ALLOC_CONF=backend:cudaMallocAsync
+
+  export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
+
+  python main.py --listen 0.0.0.0 --port ${COMFYUI_PORT} \
+  	--front-end-version Comfy-Org/ComfyUI_frontend@latest \
+  	--use-split-cross-attention \
+  	--reserve-vram 3
+}
+
+launch_webui() {
+  cd "${ROOT_DIR}/sd-webui"
+  git pull
+
+  python launch.py --listen --port "${WEBUI_PORT}" --api \
+    --skip-version-check --skip-python-version-check --enable-insecure-extension-access \
+    --precision full --no-half --no-half-vae
 }

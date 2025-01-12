@@ -3,9 +3,7 @@ services:
     image: rocm/pytorch:latest
     ports:
       - "80:80"
-    environment:
-      DOCKER_INSTANCE: comfyui
-    restart: unless-stopped
+    restart: no
     command: ["/conf/startup-comfyui.sh"]
     devices:
       - "/dev/kfd:/dev/kfd"
@@ -17,19 +15,22 @@ services:
     security_opt:
       - seccomp=unconfined
     volumes:
-      - .:/workspace
-      - ./data/home:/root
+      - ./data/home-comfyui:/root
       - ./data/checkpoints:/checkpoints
-      - ./data/comfyui:/comfyui
       - ./conf:/conf
+    environment:
+      - DOCKER_INSTANCE=comfyui
+      - PYTHON_VERSION=${PYTHON_VERSION}
+      - ROCM_VERSION=${ROCM_VERSION}
+      - ROOT_DIR=${ROOT_DIR}
+      - COMFYUI_PORT=${COMFYUI_PORT}
+
 
   stable-diffusion-webui:
     image: rocm/pytorch:latest
     ports:
       - "81:81"
-    environment:
-      DOCKER_INSTANCE: webui
-    restart: unless-stopped
+    restart: no
     command: ["/conf/startup-webui.sh"]
     devices:
       - "/dev/kfd:/dev/kfd"
@@ -41,8 +42,13 @@ services:
     security_opt:
       - seccomp=unconfined
     volumes:
-      - .:/workspace
       - ./data/home:/root
+      - ./data/home-webui:/root
       - ./data/checkpoints:/checkpoints
-      - ./data/sd-webui:/sd-webui
       - ./conf:/conf
+    environment:
+      - DOCKER_INSTANCE=webui
+      - PYTHON_VERSION=${PYTHON_VERSION}
+      - ROCM_VERSION=${ROCM_VERSION}
+      - ROOT_DIR=${ROOT_DIR}
+      - WEBUI_PORT=${WEBUI_PORT}
