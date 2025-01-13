@@ -2,11 +2,11 @@ services:
   stable-diffusion-comfyui:
     image: rocm/pytorch:latest
     ports:
-      - "80:80"
+      - "${COMFYUI_PORT}:${COMFYUI_PORT}"
     restart: no
     command: ["/conf/startup-comfyui.sh"]
     devices:
-      - "/dev/kfd:/dev/kfd"
+#      - "/dev/kfd:/dev/kfd" # remove this line if running on non ROCm
       - "/dev/dri:/dev/dri"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -29,11 +29,11 @@ services:
   stable-diffusion-webui:
     image: rocm/pytorch:latest
     ports:
-      - "81:81"
+      - "${WEBUI_PORT}:${WEBUI_PORT}"
     restart: no
     command: ["/conf/startup-webui.sh"]
     devices:
-      - "/dev/kfd:/dev/kfd"
+#      - "/dev/kfd:/dev/kfd" # remove this line if running on non ROCm
       - "/dev/dri:/dev/dri"
     extra_hosts:
       - "host.docker.internal:host-gateway"

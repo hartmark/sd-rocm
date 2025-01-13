@@ -8,7 +8,7 @@ echo "Docker instance: ${DOCKER_INSTANCE}"
 #rm -fr /root/.cache/pip
 
 has_rocm() {
-  GFX_NAME=$(rocminfo | grep -m 1 -E "gfx[^0]{1}" | sed -e 's/ *Name: *//' | awk '{$1=$1; print}')
+  GFX_NAME=$(rocminfo | grep -m 1 -E "gfx[^0]{1}" | sed -e 's/ *Name: *//' | awk '{$1=$1; print}' || echo "rocminfo missing")
   echo "GFX_NAME = $GFX_NAME"
     
   case "${GFX_NAME}" in
@@ -19,14 +19,18 @@ has_rocm() {
       export HSA_OVERRIDE_GFX_VERSION="10.3.0"
       ;;
     *)
-      echo "GFX version detection error" >&2
-      exit 1
+      if [[ "${ROCM_VERSION}" != cpuonly ]]; then
+        echo "GFX version detection error" >&2
+        exit 1
+      fi
       ;;
   esac
 }
 
 has_cuda() {
-  python <<EOF
+
+  if [[ "${ROCM_VERSION}" != cpuonly ]]; then
+    python <<EOF
 import torch
 import sys
 
@@ -45,10 +49,11 @@ except Exception as e:
     sys.exit(1)  # Exit with 1 for other errors
 EOF
 
-  # shellcheck disable=SC2181
-  if [ $? -ne 0 ]; then
-    echo "CUDA not available!" >&2
-    exit 1
+    # shellcheck disable=SC2181
+    if [ $? -ne 0 ]; then
+      echo "CUDA not available!" >&2
+      exit 1
+    fi
   fi
 }
 
@@ -67,8 +72,10 @@ activate_venv() {
         eval "$(pyenv init -)"
       fi
 
-      apt install libssl-dev -y
-      apt autoremove
+      apt update
+      apt dist-upgrade -y
+      apt install libssl-dev liblzma-dev -y
+      apt autoremove -y
     fi
 
     case "${PYTHON_VERSION}" in
@@ -130,6 +137,13 @@ install_rocm_torch() {
           --index-url https://download.pytorch.org/whl/nightly/rocm6.3 \
           --root-user-action=ignore
       pip install triton --root-user-action=ignore
+      ;;
+    cpuonly)
+      pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu --root-user-action=ignore
+      pip3 install --pre \
+          safetensors \
+          --index-url https://download.pytorch.org/whl/nightly/rocm6.3 \
+          --root-user-action=ignore
       ;;
     *)
       echo "unsupported ROCm version ${ROCM_VERSION}" >&2
@@ -205,7 +219,7 @@ setup_webui() {
     ln -sf ../../../checkpoints "${ROOT_DIR}/sd-webui/models/Stable-diffusion"
 
     # libtif.so.5 is needed to run but libtif.so.6 is installed
-    sudo ln -s /usr/lib/x86_64-linux-gnu/libtiff.so /usr/lib/x86_64-linux-gnu/libtiff.so.5
+    sudo ln -fs /usr/lib/x86_64-linux-gnu/libtiff.so /usr/lib/x86_64-linux-gnu/libtiff.so.5
 
     echo "webui environment initialization complete."
     echo "===================="
@@ -230,15 +244,23 @@ launch_comfyui() {
 
   #export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
 
+  if [[ "${ROCM_VERSION}" == cpuonly ]]; then   
+    export RUN_CPU="--cpu"
+  fi
+
   python main.py --listen 0.0.0.0 --port ${COMFYUI_PORT} \
   	--front-end-version Comfy-Org/ComfyUI_frontend@latest \
   	--use-split-cross-attention \
-  	--reserve-vram 3
+  	--reserve-vram 3 "${RUN_CPU}"
 }
 
 launch_webui() {
   cd "${ROOT_DIR}/sd-webui"
   git pull
+
+  if [[ "${ROCM_VERSION}" == cpuonly ]]; then
+    export COMMANDLINE_ARGS="--skip-torch-cuda-test --always-cpu"
+  fi
 
   python launch.py --listen --port "${WEBUI_PORT}" --api \
     --skip-version-check --skip-python-version-check --enable-insecure-extension-access \
