@@ -6,7 +6,7 @@ services:
     restart: no
     command: ["/conf/startup-comfyui.sh"]
     devices:
-#      - "/dev/kfd:/dev/kfd"
+#      - "/dev/kfd:/dev/kfd" # remove this line if running on non ROCm
       - "/dev/dri:/dev/dri"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -33,7 +33,7 @@ services:
     restart: no
     command: ["/conf/startup-webui.sh"]
     devices:
-#      - "/dev/kfd:/dev/kfd"
+#      - "/dev/kfd:/dev/kfd" # remove this line if running on non ROCm
       - "/dev/dri:/dev/dri"
     extra_hosts:
       - "host.docker.internal:host-gateway"

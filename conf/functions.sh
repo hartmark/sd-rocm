@@ -74,7 +74,7 @@ activate_venv() {
 
       apt update
       apt dist-upgrade -y
-      apt install libssl-dev -y
+      apt install libssl-dev liblzma-dev -y
       apt autoremove -y
     fi
 
@@ -219,7 +219,7 @@ setup_webui() {
     ln -sf ../../../checkpoints "${ROOT_DIR}/sd-webui/models/Stable-diffusion"
 
     # libtif.so.5 is needed to run but libtif.so.6 is installed
-    sudo ln -s /usr/lib/x86_64-linux-gnu/libtiff.so /usr/lib/x86_64-linux-gnu/libtiff.so.5
+    sudo ln -fs /usr/lib/x86_64-linux-gnu/libtiff.so /usr/lib/x86_64-linux-gnu/libtiff.so.5
 
     echo "webui environment initialization complete."
     echo "===================="
@@ -257,6 +257,10 @@ launch_comfyui() {
 launch_webui() {
   cd "${ROOT_DIR}/sd-webui"
   git pull
+
+  if [[ "${ROCM_VERSION}" == cpuonly ]]; then
+    export COMMANDLINE_ARGS="--skip-torch-cuda-test --always-cpu"
+  fi
 
   python launch.py --listen --port "${WEBUI_PORT}" --api \
     --skip-version-check --skip-python-version-check --enable-insecure-extension-access \
