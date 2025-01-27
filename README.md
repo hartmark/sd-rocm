@@ -6,8 +6,6 @@ Simple docker compose for getting ComfyUI and sd-webui (Forge) up and running wi
 
 * docker-compose
 * AMD GPU (PRs for other cards are welcome)
-* ROCm components
-  * I'm on Arch linux and used opencl-amd package
 * checkpoints are saved into **data/checkpoints** other model files in their respective subfolder, for example
   **data/comfyui/models** or **data/sd-webui/models**
 
@@ -25,6 +23,15 @@ Simple docker compose for getting ComfyUI and sd-webui (Forge) up and running wi
 You could also try run the script **run-local.sh** which will run ComfyUI without any container.
 
 The script creates a marker file that will skip downloading of python libraries to speedup the startup.
+
+## Hints
+
+To make the docker created files accessable from your own user run these commands
+
+```
+sudo setfacl -d -m "u:${USER}:rwX" data/
+sudo setfacl -R -m "u:${USER}:rwX" data/
+```
 
 ## Notes
 

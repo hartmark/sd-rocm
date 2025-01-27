@@ -59,8 +59,6 @@ activate_venv() {
     echo "venv not initialized. Initializing now..."
     echo "===================="   
 
-echo "${ROOT_DIR} ass"
-
     # only install pyenv on docker container
     if [[ "${DOCKER_INSTANCE}" != local-* ]]; then
       if [[ ! -d "${ROOT_DIR}/.pyenv" ]]; then
@@ -230,7 +228,7 @@ launch_comfyui() {
   # https://pytorch.org/docs/stable/notes/cuda.html#environment-variables
   #export PYTORCH_CUDA_ALLOC_CONF=backend:cudaMallocAsync
 
-  export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
+  #export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
 
   python main.py --listen 0.0.0.0 --port ${COMFYUI_PORT} \
   	--front-end-version Comfy-Org/ComfyUI_frontend@latest \
