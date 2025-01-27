@@ -178,8 +178,8 @@ setup_comfyui() {
     fi
     ln -sf ../../../checkpoints "${ROOT_DIR}/comfyui/models/checkpoints"
 
-    if [ ! -d "${ROOT_DIR}/comfyui/custom_nodes" ]; then
-      git clone https://github.com/ltdrdata/ComfyUI-Manager "${ROOT_DIR}/comfyui/custom_nodes"
+    if [ ! -d "${ROOT_DIR}/comfyui/custom_nodes/ComfyUI-Manager" ]; then
+      git clone https://github.com/ltdrdata/ComfyUI-Manager "${ROOT_DIR}/comfyui/custom_nodes/ComfyUI-Manager"
     fi
 
     # https://github.com/comfyanonymous/ComfyUI?tab=readme-ov-file#how-to-show-high-quality-previews
@@ -244,14 +244,21 @@ launch_comfyui() {
 
   #export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
 
-  if [[ "${ROCM_VERSION}" == cpuonly ]]; then   
-    export RUN_CPU="--cpu"
-  fi
+  COMMAND=(python main.py --listen 0.0.0.0 --port "${COMFYUI_PORT}" \
+      --front-end-version Comfy-Org/ComfyUI_frontend@latest \
+      --use-split-cross-attention)
+      
+  # reserve vram
+  # COMMAND+=("--reserve-vram 3")
 
-  python main.py --listen 0.0.0.0 --port ${COMFYUI_PORT} \
-  	--front-end-version Comfy-Org/ComfyUI_frontend@latest \
-  	--use-split-cross-attention \
-  	--reserve-vram 3 "${RUN_CPU}"
+  if [[ "${ROCM_VERSION}" == cpuonly ]]; then   
+    COMMAND+=("--cpu")
+  fi
+  
+  # Run the VAE on the CPU.
+#  COMMAND+=("--cpu-vae")
+  
+  "${COMMAND[@]}"
 }
 
 launch_webui() {

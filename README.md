@@ -16,9 +16,9 @@ Simple docker compose for getting ComfyUI and sd-webui (Forge) up and running wi
 3. start up the docker container by typing:
    1. `docker-compose up`
    2. It will take a while to download all python libraries
-   3. wait a while until you see the text:  `To see the GUI go to: http://0.0.0.0:80`
-   4. After getting that message start ComfyUI by open browser with the following link: http://localhost
-   5. or WebUI by going to http://localhost:81
+   3. wait a while until you see the text:  `To see the GUI go to: http://0.0.0.0:31488`
+   4. After getting that message start ComfyUI by open browser with the following link: http://localhost:31488
+   5. or WebUI by going to http://localhost:31489
 
 You could also try run the script **run-local.sh** which will run ComfyUI without any container.
 
@@ -32,6 +32,9 @@ To make the docker created files accessable from your own user run these command
 sudo setfacl -d -m "u:${USER}:rwX" data/
 sudo setfacl -R -m "u:${USER}:rwX" data/
 ```
+
+You can run in CPU-only mode by setting `ROCM_VERSION=cpuonly` and remove the lines with `/dev/kfd` in **docker-compose.yml**
+
 
 ## Notes
 
