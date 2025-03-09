@@ -6,7 +6,8 @@
 ###
 
 export PYTHON_VERSION="3.12"
-export ROCM_VERSION="release"
+#export ROCM_VERSION="release"
+export ROCM_VERSION="nightly"
 export DOCKER_INSTANCE="local-comfyui"
 export ROOT_DIR="${PWD}/data/home-local"
 
