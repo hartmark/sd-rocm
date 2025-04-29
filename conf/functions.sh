@@ -1,6 +1,6 @@
 #!/bin/bash
-set -e
-#set -x  # enable debug mode
+set -e # exit on error
+#set -x # enable debug mode
 
 echo "Docker instance: ${DOCKER_INSTANCE}"
 
@@ -120,26 +120,25 @@ activate_venv() {
 install_rocm_torch() {
   echo "Install ROCm version of torch"
   echo "===================="
-  pip3 uninstall torch torchaudio torchvision safetensors pytorch_triton -y
+  pip3 uninstall torch torchaudio torchvision safetensors pytorch_triton triton -y
+  pip3 install triton --root-user-action=ignore
 
   case "${ROCM_VERSION}" in
     nightly)
       pip3 install --pre \
-          torch torchaudio torchvision safetensors \
-          --index-url https://download.pytorch.org/whl/nightly/rocm6.3 \
+          torch torchvision safetensors triton pytorch_triton \
+          --index-url https://download.pytorch.org/whl/nightly/rocm6.4 \
           --root-user-action=ignore
       ;;
     release)
-      pip3 uninstall triton -y
       pip3 install torch==2.4.0 torchaudio torchvision==0.19.0 pytorch_triton -f https://repo.radeon.com/rocm/manylinux/rocm-rel-6.3.1
       pip3 install --pre \
           safetensors \
           --index-url https://download.pytorch.org/whl/nightly/rocm6.3 \
           --root-user-action=ignore
-      pip install triton --root-user-action=ignore
       ;;
     cpuonly)
-      pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu --root-user-action=ignore
+      pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu --root-user-action=ignore
       pip3 install --pre \
           safetensors \
           --index-url https://download.pytorch.org/whl/nightly/rocm6.3 \
@@ -152,6 +151,36 @@ install_rocm_torch() {
   esac
   
   pip3 install numpy==1.26.4
+}
+
+install_flash_attention() {
+  echo "Setting up Flash Attention with ROCm support..."
+
+  pip uninstall -y flash-attn
+
+  if [ -d "${ROOT_DIR}/flash-attention" ]; then
+    echo "Removing previous flash-attention directory..."
+    rm -rf "${ROOT_DIR}/flash-attention"
+  fi
+  
+  echo "Cloning flash-attention repository..."
+  git clone git@github.com:Dao-AILab/flash-attention.git "${ROOT_DIR}/flash-attention" 
+
+  cd "${ROOT_DIR}/flash-attention"
+  
+  # Set environment variables for ROCm build
+  export FLASH_ATTENTION_SKIP_CUDA_BUILD=1
+  export FLASH_ATTENTION_FORCE_BUILD=1
+  export FLASH_ATTENTION_DISABLE_FUSED_DENSE=1  # Skip the fused dense implementation
+  export FLASH_ATTENTION_DISABLE_FUSED_SOFTMAX=1  # Skip fused softmax
+  export FLASH_ATTENTION_DISABLE_TRITON=0  # Enable triton
+  export FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
+  
+  # Install the package with pip instead of setup.py directly
+  echo "Installing flash-attention..."
+  pip install -e . --root-user-action=ignore
+  
+  echo "Flash Attention installation completed."
 }
 
 setup_comfyui() {
@@ -171,7 +200,8 @@ setup_comfyui() {
     pip3 install -r requirements.txt
 
     install_rocm_torch
-
+    install_flash_attention
+    
     # use shared model folder
     if [ -d "${ROOT_DIR}/comfyui/models/checkpoints" ]; then
       rm -r "${ROOT_DIR}/comfyui/models/checkpoints"
@@ -234,20 +264,12 @@ launch_comfyui() {
   # https://github.com/pytorch/pytorch/issues/138067
   export DISABLE_ADDMM_CUDA_LT=1
 
-  # https://rocm.blogs.amd.com/artificial-intelligence/pytorch-tunableop/README.html
-  # Memory access faults like these comes if I enable this
-  # stable-diffusion-comfyui-1  | Memory access fault by GPU node-1 (Agent handle: 0x2a6c58a0) on address 0x77b317e44000. Reason: Page not present or supervisor privilege.
-  # export PYTORCH_TUNABLEOP_ENABLED=1
-
-  # https://pytorch.org/docs/stable/notes/cuda.html#environment-variables
-  #export PYTORCH_CUDA_ALLOC_CONF=backend:cudaMallocAsync
-
-  #export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
-
   COMMAND=(python main.py --listen 0.0.0.0 --port "${COMFYUI_PORT}" \
-      --front-end-version Comfy-Org/ComfyUI_frontend@latest \
-      --use-split-cross-attention)
-      
+      --front-end-version Comfy-Org/ComfyUI_frontend@latest)
+
+  export FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE" 
+  COMMAND+=("--use-flash-attention")
+
   # reserve vram
   # COMMAND+=("--reserve-vram 3")
 
