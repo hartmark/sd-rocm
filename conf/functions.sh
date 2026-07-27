@@ -9,6 +9,22 @@ echo "Docker instance: ${DOCKER_INSTANCE}"
 # shellcheck disable=SC2164
 FUNCTIONS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+safe_git_pull() {
+  # Check if we are in a git repository
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local branch
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+  if [[ "$branch" != "HEAD" && "$branch" != "" ]]; then
+    echo "Updating $(basename "$(pwd)") via git pull..."
+    git pull || echo "Warning: git pull failed in $(pwd)"
+  else
+    echo "Warning: Not on a branch (detached HEAD) in $(pwd). Skipping git pull update."
+  fi
+}
+
 # cleanup pip cache, it can grow quite big if left unchecked
 #rm -fr /root/.cache/pip
 
@@ -250,7 +266,7 @@ setup_comfyui() {
     fi
 
     cd "${ROOT_DIR}/comfyui"
-    git pull
+    safe_git_pull
 
     "$PYTHON_VENV" -m pip install --break-system-packages -r requirements.txt
 
@@ -296,7 +312,7 @@ setup_webui() {
     fi
 
     cd "${ROOT_DIR}/sd-webui"
-    git pull
+    safe_git_pull
 
     "$PYTHON_VENV" -m pip install --break-system-packages -r requirements_versions.txt
     install_rocm_torch
@@ -322,7 +338,7 @@ launch_comfyui() {
   SCRIPT_DIR="${FUNCTIONS_DIR}"
 
   cd "${ROOT_DIR}/comfyui"
-  git pull
+  safe_git_pull
   "$PYTHON_VENV" -m pip install --break-system-packages -r requirements.txt --root-user-action=ignore
 
   # https://github.com/pytorch/pytorch/issues/138067
@@ -370,7 +386,7 @@ launch_comfyui() {
 
 launch_webui() {
   cd "${ROOT_DIR}/sd-webui"
-  git pull
+  safe_git_pull
   "$PYTHON_VENV" -m pip install --break-system-packages -r requirements_versions.txt --root-user-action=ignore
 
   if [[ "${ROCM_VERSION}" == cpuonly ]]; then
