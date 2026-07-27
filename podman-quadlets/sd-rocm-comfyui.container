@@ -1,0 +1,32 @@
+[Unit]
+Description=Stable Diffusion ComfyUI ROCm Container
+After=network-online.target
+
+[Container]
+Image=localhost/sd-rocm:dev
+Exec=/conf/startup-comfyui.sh
+
+ContainerName=comfyui
+Network=caddy.network
+
+
+AddDevice=/dev/kfd:/dev/kfd
+AddDevice=/dev/dri:/dev/dri
+
+AddHost=host.docker.internal:host-gateway
+
+# adjust for personal customization
+Volume=/data/podman-data/sd-rocm/data/home-comfyui:/root
+Volume=/data/podman-data/sd-rocm/data/checkpoints:/checkpoints
+Volume=/data/podman-data/sd-rocm/conf:/conf
+Environment=DOCKER_INSTANCE=comfyui
+Environment=PYTHON_VERSION=3.12
+Environment=ROCM_VERSION=nightly
+Environment=ROOT_DIR=/root
+Environment=COMFYUI_PORT=8080
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

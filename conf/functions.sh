@@ -15,10 +15,13 @@ FUNCTIONS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 has_rocm() {
   GFX_NAME=$(rocminfo | grep -m 1 -E "gfx[^0]{1}" | sed -e 's/ *Name: *//' | awk '{$1=$1; print}' || echo "rocminfo missing")
   echo "GFX_NAME = $GFX_NAME"
-    
+
   case "${GFX_NAME}" in
     gfx1101 | gfx1100)
       export HSA_OVERRIDE_GFX_VERSION="11.0.0"
+      ;;
+    gfx1200)
+      export HSA_OVERRIDE_GFX_VERSION="12.0.0"
       ;;
     *)
       if [[ "${ROCM_VERSION}" != cpuonly ]]; then
@@ -64,7 +67,7 @@ activate_venv() {
 
   if [ ! -f "${MARKER_FILE}" ]; then
     echo "venv not initialized. Initializing now..."
-    echo "===================="   
+    echo "===================="
 
     # only install pyenv on docker container
     if [[ "${DOCKER_INSTANCE}" != local-* ]]; then
@@ -117,7 +120,7 @@ activate_venv() {
 
     echo "venv environment initialization complete."
     echo "===================="
-  
+
     touch "${MARKER_FILE}"
   else
     echo "venv environment already initialized. Skipping initialization steps."
@@ -134,7 +137,7 @@ install_rocm_torch() {
   echo "===================="
   pip3 uninstall -y \
     torch torchvision torchaudio onnxruntime_rocm
-  
+
   case "${ROCM_VERSION}" in
     nightly)
       pip3 uninstall -y numpy
@@ -144,12 +147,15 @@ install_rocm_torch() {
         gfx1101 | gfx1100)
           THE_ROCK_URL="https://rocm.nightlies.amd.com/v2/gfx110X-dgpu"
           ;;
+        gfx1200)
+          THE_ROCK_URL="https://rocm.nightlies.amd.com/v2/gfx120X-all"
+          ;;
       *)
         echo "GFX version detection error" >&2
         exit 1
         ;;
       esac
-      
+
       pip3 install --pre \
           torch torchvision torchaudio numpy \
           --index-url  "$THE_ROCK_URL"\
@@ -189,42 +195,6 @@ install_rocm_torch() {
   esac
 }
 
-install_flash_attention() {
-  if [[ "${ROCM_VERSION}" == "cpuonly" ]]; then
-    echo "Flash Attention not supported on cpuonly"
-    return
-  fi
-
-  echo "Setting up Flash Attention with ROCm support..."
-
-  pip3 uninstall -y flash-attn
-
-  if [ -d "${ROOT_DIR}/flash-attention" ]; then
-    echo "Removing previous flash-attention directory..."
-    rm -rf "${ROOT_DIR}/flash-attention"
-  fi
-  
-  echo "Cloning flash-attention repository..."
-  git clone https://github.com/Dao-AILab/flash-attention.git "${ROOT_DIR}/flash-attention"
-
-  cd "${ROOT_DIR}/flash-attention"
-  
-  # Set environment variables for ROCm build
-  export FLASH_ATTENTION_SKIP_CUDA_BUILD=1
-  export FLASH_ATTENTION_FORCE_BUILD=1
-  export FLASH_ATTENTION_DISABLE_FUSED_DENSE=1  # Skip the fused dense implementation
-  export FLASH_ATTENTION_DISABLE_FUSED_SOFTMAX=1  # Skip fused softmax
-  export FLASH_ATTENTION_DISABLE_TRITON=0  # Enable triton
-  export TRITON_BUILD_WITH_ROCM=1  # Add this
-  export FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
-  
-  # Install the package with pip instead of setup.py directly
-  echo "Installing flash-attention..."
-  pip3 install -e . --no-build-isolation --root-user-action=ignore
-  
-  echo "Flash Attention installation completed."
-}
-
 setup_comfyui() {
   MARKER_FILE="${ROOT_DIR}/.${DOCKER_INSTANCE}_${PYTHON_VERSION}_initialized"
 
@@ -242,11 +212,10 @@ setup_comfyui() {
     pip3 install -r requirements.txt
 
     install_rocm_torch
-    install_flash_attention
-    
+
     #install some pips ReActor needs
     pip3 install onnxruntime --root-user-action=ignore
-    
+
     # use shared model folder
     if [ -d "${ROOT_DIR}/comfyui/models/checkpoints" ]; then
       rm -r "${ROOT_DIR}/comfyui/models/checkpoints"
@@ -317,9 +286,6 @@ launch_comfyui() {
   ARGS=(main.py --listen 0.0.0.0 --port "${COMFYUI_PORT}" \
       --front-end-version Comfy-Org/ComfyUI_frontend@latest)
 
-  export FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE" 
-  ARGS+=("--use-flash-attention")
-  
   # May help with certain model loading issues
   ARGS+=("--disable-smart-memory")
 
@@ -328,11 +294,11 @@ launch_comfyui() {
   export HSA_ENABLE_INTERRUPT=0
   export PYTORCH_HIP_ALLOC_CONF="garbage_collection_threshold:0.8,max_split_size_mb:512"
   export HSA_ENABLE_SDMA=0  # Can improve performance on some AMD GPUs
-  
-  if [[ "${ROCM_VERSION}" == cpuonly ]]; then   
+
+  if [[ "${ROCM_VERSION}" == cpuonly ]]; then
     ARGS+=("--cpu")
   fi
-  
+
   # Run the VAE on the CPU.
 #  ARGS+=("--cpu-vae")
 
