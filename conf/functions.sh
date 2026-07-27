@@ -15,7 +15,7 @@ FUNCTIONS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 has_rocm() {
   GFX_NAME=$(rocminfo | grep -m 1 -E "gfx[^0]{1}" | sed -e 's/ *Name: *//' | awk '{$1=$1; print}' || echo "rocminfo missing")
   echo "GFX_NAME = $GFX_NAME"
-    
+
   case "${GFX_NAME}" in
     gfx1101 | gfx1100)
       export HSA_OVERRIDE_GFX_VERSION="11.0.0"
@@ -32,7 +32,7 @@ has_rocm() {
 has_cuda() {
 
   if [[ "${ROCM_VERSION}" != cpuonly ]]; then
-    python <<EOF
+    "$PYTHON_VENV" <<EOF
 import torch
 import sys
 
@@ -61,10 +61,30 @@ EOF
 
 activate_venv() {
   MARKER_FILE="${ROOT_DIR}/.venv_${DOCKER_INSTANCE}_${PYTHON_VERSION}_initialized"
+  VENV_DIR="${ROOT_DIR}/venv-${DOCKER_INSTANCE}-${PYTHON_VERSION}"
+
+  # Check if venv exists and is functional (handles system python upgrades and moved venv)
+  if [ -f "${MARKER_FILE}" ]; then
+    local broken=0
+    if [ ! -x "${VENV_DIR}/bin/python3" ]; then
+      broken=1
+    elif ! "${VENV_DIR}/bin/python3" -c "import sys; print(sys.version)" >/dev/null 2>&1; then
+      broken=1
+    elif [ -f "${VENV_DIR}/bin/activate" ] && ! grep -q "VIRTUAL_ENV.*${VENV_DIR}" "${VENV_DIR}/bin/activate"; then
+      echo "venv appears to have been moved. Re-initializing..."
+      broken=1
+    fi
+
+    if [ "$broken" -eq 1 ]; then
+      echo "venv is missing, not executable, or broken. Re-initializing..."
+      rm -f "${MARKER_FILE}"
+      rm -rf "${VENV_DIR}"
+    fi
+  fi
 
   if [ ! -f "${MARKER_FILE}" ]; then
     echo "venv not initialized. Initializing now..."
-    echo "===================="   
+    echo "===================="
 
     # only install pyenv on docker container
     if [[ "${DOCKER_INSTANCE}" != local-* ]]; then
@@ -114,6 +134,7 @@ activate_venv() {
     fi
 
     "$PYTHON_BIN" -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/python3" -m pip install --upgrade pip
 
     echo "venv environment initialization complete."
     echo "===================="
@@ -126,18 +147,40 @@ activate_venv() {
 
   # shellcheck disable=SC1090
   # shellcheck source=/dev/null
-  source "${ROOT_DIR}/venv-${DOCKER_INSTANCE}-${PYTHON_VERSION}/bin/activate"
+  source "${VENV_DIR}/bin/activate"
+
+  if [ -z "$VIRTUAL_ENV" ]; then
+    echo "Error: Virtual environment activation failed." >&2
+    exit 1
+  fi
+
+  # Ensure we use the venv's python and pip
+  export PYTHON_VENV="${VENV_DIR}/bin/python3"
+
+  # Relax aiter's triton version check to allow ROCm-specific pytorch-triton-rocm
+  export AITER_USE_SYSTEM_TRITON=1
+
+  # Ensure ROCM_HOME and HIP_PATH are set for tools like aiter
+  if [ -z "$ROCM_HOME" ]; then
+    if [ -n "$ROCM_PATH" ]; then
+      export ROCM_HOME="$ROCM_PATH"
+    elif [ -d "/opt/rocm" ]; then
+      export ROCM_HOME="/opt/rocm"
+    fi
+  fi
+  if [ -z "$HIP_PATH" ] && [ -n "$ROCM_HOME" ]; then
+    export HIP_PATH="$ROCM_HOME"
+  fi
 }
 
 install_rocm_torch() {
   echo "Install ROCm version of torch"
   echo "===================="
-  pip3 uninstall -y \
-    torch torchvision torchaudio onnxruntime_rocm
-  
+  "$PYTHON_VENV" -m pip uninstall -y \
+    torch torchvision torchaudio onnxruntime onnxruntime-gpu onnxruntime-rocm triton pytorch-triton pytorch-triton-rocm
+
   case "${ROCM_VERSION}" in
     nightly)
-      pip3 uninstall -y numpy
       # TODO: add support for all here
       # https://github.com/ROCm/TheRock/blob/main/RELEASES.md#index-page-listing
       case "${GFX_NAME}" in
@@ -149,8 +192,8 @@ install_rocm_torch() {
         exit 1
         ;;
       esac
-      
-      pip3 install --pre \
+
+      "$PYTHON_VENV" -m pip install --pre --break-system-packages \
           torch torchvision torchaudio numpy \
           --index-url  "$THE_ROCK_URL"\
           --root-user-action=ignore
@@ -158,11 +201,11 @@ install_rocm_torch() {
       # onnxruntime not available in nightly
       case "${PYTHON_VERSION}" in
         3.10)
-          pip3 install \
+          "$PYTHON_VENV" -m pip install --break-system-packages \
             https://repo.radeon.com/rocm/manylinux/rocm-rel-7.0/onnxruntime_rocm-1.22.1-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
           ;;
         3.12)
-          pip3 install \
+          "$PYTHON_VENV" -m pip install --break-system-packages \
             https://repo.radeon.com/rocm/manylinux/rocm-rel-7.0/onnxruntime_rocm-1.22.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
           ;;
         *)
@@ -171,13 +214,13 @@ install_rocm_torch() {
       esac
   ;;
     release)
-      pip3 install \
+      "$PYTHON_VENV" -m pip install --break-system-packages \
           torch torchvision torchaudio onnxruntime_rocm \
           --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.0\
           --root-user-action=ignore
               ;;
     cpuonly)
-      pip3 install \
+      "$PYTHON_VENV" -m pip install --break-system-packages \
           torch torchvision torchaudio \
           --extra-index-url https://download.pytorch.org/whl/cpu \
           --root-user-action=ignore
@@ -197,18 +240,21 @@ install_flash_attention() {
 
   echo "Setting up Flash Attention with ROCm support..."
 
-  pip3 uninstall -y flash-attn
+  "$PYTHON_VENV" -m pip uninstall -y flash-attn
 
   if [ -d "${ROOT_DIR}/flash-attention" ]; then
     echo "Removing previous flash-attention directory..."
     rm -rf "${ROOT_DIR}/flash-attention"
   fi
-  
+
   echo "Cloning flash-attention repository..."
   git clone https://github.com/Dao-AILab/flash-attention.git "${ROOT_DIR}/flash-attention"
 
   cd "${ROOT_DIR}/flash-attention"
-  
+
+  # Patch setup.py to relax triton requirement for ROCm nightlies
+  sed -i 's/triton>=3.6.0/pytorch-triton-rocm>=3.5.0/g' setup.py
+
   # Set environment variables for ROCm build
   export FLASH_ATTENTION_SKIP_CUDA_BUILD=1
   export FLASH_ATTENTION_FORCE_BUILD=1
@@ -217,11 +263,11 @@ install_flash_attention() {
   export FLASH_ATTENTION_DISABLE_TRITON=0  # Enable triton
   export TRITON_BUILD_WITH_ROCM=1  # Add this
   export FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
-  
+
   # Install the package with pip instead of setup.py directly
   echo "Installing flash-attention..."
-  pip3 install -e . --no-build-isolation --root-user-action=ignore
-  
+  "$PYTHON_VENV" -m pip install --break-system-packages -e . --no-build-isolation --root-user-action=ignore
+
   echo "Flash Attention installation completed."
 }
 
@@ -239,14 +285,15 @@ setup_comfyui() {
     cd "${ROOT_DIR}/comfyui"
     git pull
 
-    pip3 install -r requirements.txt
+    "$PYTHON_VENV" -m pip install --break-system-packages -r requirements.txt
 
     install_rocm_torch
-    install_flash_attention
-    
-    #install some pips ReActor needs
-    pip3 install onnxruntime --root-user-action=ignore
-    
+
+    # ReActor needs onnxruntime, but we use onnxruntime-rocm for ROCm
+    if [[ "${ROCM_VERSION}" == cpuonly ]]; then
+      "$PYTHON_VENV" -m pip install --break-system-packages onnxruntime --root-user-action=ignore
+    fi
+
     # use shared model folder
     if [ -d "${ROOT_DIR}/comfyui/models/checkpoints" ]; then
       rm -r "${ROOT_DIR}/comfyui/models/checkpoints"
@@ -284,7 +331,7 @@ setup_webui() {
     cd "${ROOT_DIR}/sd-webui"
     git pull
 
-    pip install -r requirements_versions.txt
+    "$PYTHON_VENV" -m pip install --break-system-packages -r requirements_versions.txt
     install_rocm_torch
 
     # use shared model folder
@@ -309,6 +356,7 @@ launch_comfyui() {
 
   cd "${ROOT_DIR}/comfyui"
   git pull
+  "$PYTHON_VENV" -m pip install --break-system-packages -r requirements.txt --root-user-action=ignore
 
   # https://github.com/pytorch/pytorch/issues/138067
   export DISABLE_ADDMM_CUDA_LT=1
@@ -317,22 +365,18 @@ launch_comfyui() {
   ARGS=(main.py --listen 0.0.0.0 --port "${COMFYUI_PORT}" \
       --front-end-version Comfy-Org/ComfyUI_frontend@latest)
 
-  export FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE" 
-  ARGS+=("--use-flash-attention")
-  
   # May help with certain model loading issues
   ARGS+=("--disable-smart-memory")
 
   export GPU_MAX_HEAP_SIZE=100
   export GPU_SINGLE_ALLOC_PERCENT=100
   export HSA_ENABLE_INTERRUPT=0
-  export PYTORCH_HIP_ALLOC_CONF="garbage_collection_threshold:0.8,max_split_size_mb:512"
   export HSA_ENABLE_SDMA=0  # Can improve performance on some AMD GPUs
-  
-  if [[ "${ROCM_VERSION}" == cpuonly ]]; then   
+
+  if [[ "${ROCM_VERSION}" == cpuonly ]]; then
     ARGS+=("--cpu")
   fi
-  
+
   # Run the VAE on the CPU.
 #  ARGS+=("--cpu-vae")
 
@@ -351,21 +395,22 @@ launch_comfyui() {
     echo "Profiling enabled. Logs will be written to: ${PROFILE_DIR}"
     echo "Sampling interval: ${PROFILING_SAMPLING_INTERVAL}s"
 
-    python "${SCRIPT_DIR}/profiler_runner.py" "${ARGS[@]}"
+    "$PYTHON_VENV" "${SCRIPT_DIR}/profiler_runner.py" "${ARGS[@]}"
   else
-    python "${ARGS[@]}"
+    "$PYTHON_VENV" "${ARGS[@]}"
   fi
 }
 
 launch_webui() {
   cd "${ROOT_DIR}/sd-webui"
   git pull
+  "$PYTHON_VENV" -m pip install --break-system-packages -r requirements_versions.txt --root-user-action=ignore
 
   if [[ "${ROCM_VERSION}" == cpuonly ]]; then
     export COMMANDLINE_ARGS="--skip-torch-cuda-test --always-cpu"
   fi
 
-  python launch.py --listen --port "${WEBUI_PORT}" --api \
+  "$PYTHON_VENV" launch.py --listen --port "${WEBUI_PORT}" --api \
     --skip-version-check --skip-python-version-check --enable-insecure-extension-access \
     --precision full --no-half --no-half-vae
 }
