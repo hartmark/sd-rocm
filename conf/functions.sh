@@ -353,8 +353,6 @@ launch_comfyui() {
 
   export GPU_MAX_HEAP_SIZE=100
   export GPU_SINGLE_ALLOC_PERCENT=100
-  export HSA_ENABLE_INTERRUPT=0
-  export HSA_ENABLE_SDMA=0  # Can improve performance on some AMD GPUs
 
   if [[ "${ROCM_VERSION}" == cpuonly ]]; then
     ARGS+=("--cpu")

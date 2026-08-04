@@ -24,9 +24,14 @@ Environment=PYTHON_VERSION=3.12
 Environment=ROCM_VERSION=nightly
 Environment=ROOT_DIR=/root
 Environment=COMFYUI_PORT=8080
+HealthCmd=curl -f http://localhost:8080/queue || exit 1
+HealthInterval=1m
+HealthRetries=3
+HealthTimeout=20s
+HealthOnFailure=restart
 
 [Service]
 Restart=on-failure
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
