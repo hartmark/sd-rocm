@@ -5,10 +5,13 @@ After=network-online.target
 [Container]
 Image=localhost/sd-rocm:dev
 Exec=/conf/startup-comfyui.sh
+AutoUpdate=local
 
 ContainerName=comfyui
 Network=caddy.network
 
+# For debugging
+PodmanArgs=--security-opt=seccomp=unconfined --cap-add=SYS_PTRACE
 
 AddDevice=/dev/kfd:/dev/kfd
 AddDevice=/dev/dri:/dev/dri
@@ -24,10 +27,22 @@ Environment=PYTHON_VERSION=3.12
 Environment=ROCM_VERSION=nightly
 Environment=ROOT_DIR=/root
 Environment=COMFYUI_PORT=8080
-HealthCmd=curl -f http://localhost:8080/queue || exit 1
-HealthInterval=1m
-HealthRetries=3
-HealthTimeout=20s
+Environment=DISABLE_PINNED_MEMORY=1
+Environment=FAST_DISK=1
+Environment=MMAP_TORCH=1
+# CACHE_NONE removed 2026-09-02: it forced a cold GGUF reload every job, which under
+# VRAM+RAM pressure hit the GGUF partial-load mmap-release loop -> BusyWaitSignal hang.
+# Environment=CACHE_NONE=1
+# Keep models resident in VRAM between jobs so load_models_gpu always does a full load
+# (never lowvram_model_memory>0 -> the mmap-release loop never runs). Needs the fp8
+# text encoder so diffusion + TE + VAE fit in 16 GB at once.
+Environment=HIGH_VRAM=1
+# Reduce HIP allocator fragmentation that otherwise creeps into the lowvram path.
+Environment=PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
+HealthCmd=python3 /conf/healthcheck.py
+HealthInterval=2m
+HealthRetries=5
+HealthTimeout=30s
 HealthOnFailure=restart
 
 [Service]
