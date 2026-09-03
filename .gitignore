@@ -4,3 +4,6 @@ data/*
 .env
 .env.*
 !.env.example
+
+# built LD_PRELOAD shim (functions.sh rebuilds it)
+conf/hsa-gentle-wait.so
