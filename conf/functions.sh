@@ -351,6 +351,22 @@ ensure_rocm_onnx() {
     fi
   done
 
+  # onnxruntime_rocm (built for ROCm 7.0) needs librocm_smi64.so.7, but ROCm 10.x nightlies only
+  # ship libamd_smi; without it the ROCm EP fails to load and ONNX (faceswap) silently runs on CPU.
+  # rocm_smi has no ROCm deps, so borrow the base image's copy via a compat dir on LD_LIBRARY_PATH.
+  if ! "$PYTHON_VENV" -c "import ctypes; ctypes.CDLL('librocm_smi64.so.7')" 2>/dev/null; then
+    local SMI_SRC
+    SMI_SRC=$(find /opt/venv /opt/rocm* -name "librocm_smi64.so.1" 2>/dev/null | head -n 1)
+    if [ -n "$SMI_SRC" ]; then
+      echo "Linking librocm_smi64.so.7 -> $SMI_SRC for onnxruntime ROCm EP"
+      mkdir -p "${ROOT_DIR}/rocm-compat"
+      ln -sf "$SMI_SRC" "${ROOT_DIR}/rocm-compat/librocm_smi64.so.7"
+      export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}${ROOT_DIR}/rocm-compat"
+    else
+      echo "WARNING: no librocm_smi64.so.1 found; onnxruntime will fall back to CPU" >&2
+    fi
+  fi
+
   # Fix missing librocsolver.so.0 by symlinking to librocsolver.so.1
   echo "$SITE_PACKAGES" | tr ':' '\n' | xargs -I {} find {} -name "librocsolver.so.1" 2>/dev/null | while read -r lib; do
     local dir
@@ -517,6 +533,10 @@ launch_comfyui() {
 
   if [[ "${FAST_DISK}" == "1" || "${FAST_DISK}" == "true" ]]; then
     ARGS+=("--fast-disk")
+  fi
+
+  if [[ "${DISABLE_DYNAMIC_VRAM}" == "1" || "${DISABLE_DYNAMIC_VRAM}" == "true" ]]; then
+    ARGS+=("--disable-dynamic-vram")
   fi
 
   if [[ "${CACHE_NONE}" == "1" || "${CACHE_NONE}" == "true" ]]; then
