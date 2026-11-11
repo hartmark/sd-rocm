@@ -3,7 +3,7 @@ Description=Stable Diffusion WebUI ROCm Container
 After=network-online.target
 
 [Container]
-Image=localhost/sd-rocm:dev
+Image=localhost/sd-rocm:slim
 Exec=/conf/startup-webui.sh
 
 ContainerName=webui

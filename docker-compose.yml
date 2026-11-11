@@ -1,6 +1,9 @@
 services:
   stable-diffusion-comfyui:
-    image: rocm/pytorch:latest
+    image: localhost/sd-rocm:slim
+    build:
+      context: .
+      dockerfile: podman-quadlets/Dockerfile
     ports:
       - "${COMFYUI_PORT}:${COMFYUI_PORT}"
     restart: no
@@ -16,6 +19,7 @@ services:
       - seccomp=unconfined
     volumes:
       - ./data/home-comfyui:/root
+      - ./data/output:/root/comfyui/output
       - ./data/checkpoints:/checkpoints
       - ./conf:/conf
     environment:
@@ -27,7 +31,10 @@ services:
 
 
   stable-diffusion-webui:
-    image: rocm/pytorch:latest
+    image: localhost/sd-rocm:slim
+    build:
+      context: .
+      dockerfile: podman-quadlets/Dockerfile
     ports:
       - "${WEBUI_PORT}:${WEBUI_PORT}"
     restart: no

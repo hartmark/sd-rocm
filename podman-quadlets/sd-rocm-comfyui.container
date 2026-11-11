@@ -3,7 +3,7 @@ Description=Stable Diffusion ComfyUI ROCm Container
 After=network-online.target
 
 [Container]
-Image=localhost/sd-rocm:dev
+Image=localhost/sd-rocm:slim
 Exec=/conf/startup-comfyui.sh
 AutoUpdate=local
 
@@ -20,6 +20,8 @@ AddHost=host.docker.internal:host-gateway
 
 # adjust for personal customization
 Volume=/data/podman-data/sd-rocm/data/home-comfyui:/root
+# Generated images outside the ComfyUI home, so they are easy to browse and back up on their own.
+Volume=/data/podman-data/sd-rocm/output:/root/comfyui/output
 Volume=/data/podman-data/sd-rocm/data/checkpoints:/checkpoints
 Volume=/data/podman-data/sd-rocm/conf:/conf
 Environment=DOCKER_INSTANCE=comfyui
@@ -37,6 +39,10 @@ Environment=MMAP_TORCH=1
 # (never lowvram_model_memory>0 -> the mmap-release loop never runs). Needs the fp8
 # text encoder so diffusion + TE + VAE fit in 16 GB at once.
 Environment=HIGH_VRAM=1
+# ComfyUI's dynamic VRAM (default since its Oct 2026 core) ignores --highvram/--lowvram.
+# DISABLE_DYNAMIC_VRAM=1 passes --disable-dynamic-vram; it was tried against load hangs in
+# Oct 2026 and reverted, so it stays off by default.
+# Environment=DISABLE_DYNAMIC_VRAM=1
 # Reduce HIP allocator fragmentation that otherwise creeps into the lowvram path.
 Environment=PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
 HealthCmd=python3 /conf/healthcheck.py

@@ -9,6 +9,23 @@ echo "Docker instance: ${DOCKER_INSTANCE}"
 # shellcheck disable=SC2164
 FUNCTIONS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Personal overrides: conf/.env applies to every instance, conf/.env.<DOCKER_INSTANCE> (e.g. .env.comfyui)
+# to one. They are read after the quadlet/compose environment, so their values win. Both are gitignored;
+# see conf/.env.example for the supported settings.
+load_env_overrides() {
+  local f
+  for f in "${FUNCTIONS_DIR}/.env" "${FUNCTIONS_DIR}/.env.${DOCKER_INSTANCE}"; do
+    if [ -f "$f" ]; then
+      echo "Loading overrides from $f"
+      set -a
+      # shellcheck disable=SC1090
+      source "$f"
+      set +a
+    fi
+  done
+}
+load_env_overrides
+
 safe_git_pull() {
   # Check if we are in a git repository
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -29,7 +46,17 @@ safe_git_pull() {
 #rm -fr /root/.cache/pip
 
 has_rocm() {
-  GFX_NAME=$(rocminfo | grep -m 1 -E "gfx[^0]{1}" | sed -e 's/ *Name: *//' | awk '{$1=$1; print}' || echo "rocminfo missing")
+  GFX_NAME=$(rocminfo 2>/dev/null | grep -m 1 -E "gfx[^0]{1}" | sed -e 's/ *Name: *//' | awk '{$1=$1; print}' || echo "rocminfo missing")
+  # The slim image has no system rocminfo (the venv brings TheRock's), so on a fresh install read the
+  # KFD topology instead: gfx_target_version 120000 -> gfx1200, 110001 -> gfx1101, 90010 -> gfx90a.
+  if [[ -z "$GFX_NAME" || "$GFX_NAME" == "rocminfo missing" ]]; then
+    local KFD_VER
+    KFD_VER=$(grep -h '^gfx_target_version' /sys/class/kfd/kfd/topology/nodes/*/properties 2>/dev/null \
+      | awk '$2 > 0 { print $2; exit }')
+    if [ -n "$KFD_VER" ]; then
+      GFX_NAME=$(printf 'gfx%d%x%x' $((KFD_VER / 10000)) $((KFD_VER / 100 % 100)) $((KFD_VER % 100)))
+    fi
+  fi
   echo "GFX_NAME = $GFX_NAME"
 
   case "${GFX_NAME}" in
@@ -105,8 +132,9 @@ activate_venv() {
     echo "venv not initialized. Initializing now..."
     echo "===================="
 
-    # only install pyenv on docker container
-    if [[ "${DOCKER_INSTANCE}" != local-* ]]; then
+    # only install pyenv on docker container, and only when the image has no python${PYTHON_VERSION}
+    # (the slim image ships a standalone CPython and no compiler, so pyenv could not build one anyway)
+    if [[ "${DOCKER_INSTANCE}" != local-* ]] && ! command -v "python${PYTHON_VERSION}" >/dev/null 2>&1; then
       if [[ ! -d "${ROOT_DIR}/.pyenv" ]]; then
         curl https://pyenv.run | bash
         eval "$(pyenv init --path)"
@@ -135,7 +163,13 @@ activate_venv() {
 
     VENV_DIR="${ROOT_DIR}/venv-${DOCKER_INSTANCE}-${PYTHON_VERSION}"
 
-    if command -v pyenv >/dev/null 2>&1; then
+    # Pick python${PYTHON_VERSION}: system (the slim image ships one), then pyenv, then uv's standalone
+    # CPython in ${ROOT_DIR}/python. A different minor version would break the cp3xx-pinned wheels
+    # (onnxruntime_rocm), so there is no silent fallback to another python3.
+    PYTHON_BIN=""
+    if command -v "python${PYTHON_VERSION}" >/dev/null 2>&1; then
+      PYTHON_BIN="python${PYTHON_VERSION}"
+    elif command -v pyenv >/dev/null 2>&1; then
       export PATH="${HOME}/.pyenv/bin:${PATH}"
       pyenv install "${PYTHON_VERSION_FULL}" --skip-existing || true
       pyenv global "${PYTHON_VERSION_FULL}" || true
@@ -144,13 +178,19 @@ activate_venv() {
       if [ ! -x "$PYTHON_BIN" ]; then
         PYTHON_BIN="python${PYTHON_VERSION}"
       fi
-    else
-      echo "pyenv not found; falling back to system Python."
-      PYTHON_BIN="python${PYTHON_VERSION}"
-      if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-        PYTHON_BIN="python3"
-      fi
+    elif command -v uv >/dev/null 2>&1; then
+      echo "Using uv to fetch a standalone CPython ${PYTHON_VERSION} into ${ROOT_DIR}/python"
+      UV_PYTHON_INSTALL_DIR="${ROOT_DIR}/python" uv python install "${PYTHON_VERSION}"
+      PYTHON_BIN=$(UV_PYTHON_INSTALL_DIR="${ROOT_DIR}/python" uv python find "${PYTHON_VERSION}")
+    elif command -v python3 >/dev/null 2>&1 \
+         && [ "$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')" = "${PYTHON_VERSION}" ]; then
+      PYTHON_BIN="python3"
     fi
+    if [ -z "$PYTHON_BIN" ]; then
+      echo "Error: no python${PYTHON_VERSION} found. Install it, pyenv or uv (https://docs.astral.sh/uv/)." >&2
+      exit 1
+    fi
+    echo "Creating venv with $PYTHON_BIN ($("$PYTHON_BIN" -V 2>&1))"
 
     "$PYTHON_BIN" -m venv "$VENV_DIR"
     "$VENV_DIR/bin/python3" -m pip install --upgrade pip
@@ -353,10 +393,12 @@ ensure_rocm_onnx() {
 
   # onnxruntime_rocm (built for ROCm 7.0) needs librocm_smi64.so.7, but ROCm 10.x nightlies only
   # ship libamd_smi; without it the ROCm EP fails to load and ONNX (faceswap) silently runs on CPU.
-  # rocm_smi has no ROCm deps, so borrow the base image's copy via a compat dir on LD_LIBRARY_PATH.
+  # rocm_smi has no ROCm deps, so link a copy via a compat dir on LD_LIBRARY_PATH: the slim image ships
+  # AMD's librocm_smi64.so.7 in /opt/rocm-compat/lib; the old rocm/pytorch image has a .so.1 in /opt/venv.
   if ! "$PYTHON_VENV" -c "import ctypes; ctypes.CDLL('librocm_smi64.so.7')" 2>/dev/null; then
     local SMI_SRC
-    SMI_SRC=$(find /opt/venv /opt/rocm* -name "librocm_smi64.so.1" 2>/dev/null | head -n 1)
+    SMI_SRC=$(find /opt/rocm* -name "librocm_smi64.so.7*" -type f 2>/dev/null | head -n 1)
+    [ -z "$SMI_SRC" ] && SMI_SRC=$(find /opt/venv /opt/rocm* -name "librocm_smi64.so.1" 2>/dev/null | head -n 1)
     if [ -n "$SMI_SRC" ]; then
       echo "Linking librocm_smi64.so.7 -> $SMI_SRC for onnxruntime ROCm EP"
       mkdir -p "${ROOT_DIR}/rocm-compat"
@@ -394,8 +436,15 @@ setup_comfyui() {
     echo "comfyui not initialized. Initializing now..."
     echo "===================="
 
-    if [ ! -d "${ROOT_DIR}/comfyui" ]; then
-      git clone https://github.com/comfyanonymous/ComfyUI "${ROOT_DIR}/comfyui"
+    if [ ! -d "${ROOT_DIR}/comfyui/.git" ]; then
+      # comfyui/ can already exist because of bind mounts inside it (e.g. comfyui/output or
+      # comfyui/models), so clone without checkout and populate the existing directory.
+      rm -rf "${ROOT_DIR}/comfyui.clone"
+      git clone --no-checkout https://github.com/comfyanonymous/ComfyUI "${ROOT_DIR}/comfyui.clone"
+      mkdir -p "${ROOT_DIR}/comfyui"
+      mv "${ROOT_DIR}/comfyui.clone/.git" "${ROOT_DIR}/comfyui/.git"
+      rmdir "${ROOT_DIR}/comfyui.clone"
+      git -C "${ROOT_DIR}/comfyui" checkout -f
     fi
 
     cd "${ROOT_DIR}/comfyui"
@@ -498,6 +547,9 @@ launch_comfyui() {
         && echo "built $SHIM" || echo "WARNING: hsa-gentle-wait build failed" >&2
     fi
     [ -f "$SHIM" ] && export LD_PRELOAD="${SHIM}${LD_PRELOAD:+:$LD_PRELOAD}"
+  elif [[ "${GENTLE_WAIT:-1}" != "0" ]] && [ -f /usr/local/lib/hsa-gentle-wait.so ]; then
+    # Slim image (no gcc): the shim is prebuilt in the image's build stage (2026-11-11).
+    export LD_PRELOAD="/usr/local/lib/hsa-gentle-wait.so${LD_PRELOAD:+:$LD_PRELOAD}"
   fi
 
   # Optimization for memory fragmentation and allocation

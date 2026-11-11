@@ -1,3 +1,5 @@
 [Build]
 File=/home/markus/code/podman/sd-rocm/podman-quadlets/Dockerfile
-ImageTag=localhost/sd-rocm:dev
+# Build context is the repo root (the Dockerfile copies conf/hsa-gentle-wait.c).
+SetWorkingDirectory=/home/markus/code/podman/sd-rocm
+ImageTag=localhost/sd-rocm:slim
