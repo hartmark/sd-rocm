@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 ###
-# Running on arch you need to install:
-# - rocminfo (unless you're using cpuonly)
-# - pyenv (optional; if missing, system python3 will be used)
+# Running on the host needs python${PYTHON_VERSION} (default 3.12) from one of:
+# - the system (python3.12 on PATH)
+# - pyenv
+# - uv (fetches a standalone CPython into ${ROOT_DIR}/python)
+# rocminfo is optional: GPU detection falls back to the KFD topology.
 ###
 
 set -e
@@ -15,10 +17,15 @@ if [ -f ./.env ]; then
   set +a
 fi
 
+export DOCKER_INSTANCE="${DOCKER_INSTANCE:-local-comfyui}"
+
+# functions.sh also loads conf/.env and conf/.env.${DOCKER_INSTANCE} (the same overrides the containers
+# use), so source it before the defaults below.
+. conf/functions.sh
+
 export PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
 #export ROCM_VERSION="release"
 export ROCM_VERSION="${ROCM_VERSION:-nightly}"
-export DOCKER_INSTANCE="${DOCKER_INSTANCE:-local-comfyui}"
 export ROOT_DIR="${ROOT_DIR:-${PWD}/data/home-local}"
 export COMFYUI_PORT="${COMFYUI_PORT:-31490}"
 
@@ -33,7 +40,6 @@ if [ ! -d "${ROOT_DIR}" ]; then
   mkdir -p "${ROOT_DIR}"
 fi
 
-. conf/functions.sh
 has_rocm
 activate_venv
 

@@ -20,6 +20,30 @@ Simple docker compose for getting ComfyUI and sd-webui (Forge) up and running wi
    4. After getting that message start ComfyUI by open browser with the following link: http://localhost:31488
    5. or WebUI by going to http://localhost:31489
 
+### Container image
+
+`docker-compose up` (or the `podman-quadlets/sd-rocm.build` quadlet) builds `localhost/sd-rocm:slim` from
+`podman-quadlets/Dockerfile`, with the repo root as build context:
+
+```
+podman build -f podman-quadlets/Dockerfile -t localhost/sd-rocm:slim .
+```
+
+It is about 0.5 GB instead of the ~54 GB `rocm/pytorch` image used earlier. ROCm, PyTorch and MIOpen come from
+TheRock's pip wheels in the venv under `data/home-*`, so the image only carries Ubuntu 26.04 LTS, a standalone
+CPython (`PYTHON_VERSION`, default 3.12, via [python-build-standalone](https://github.com/astral-sh/python-build-standalone),
+because 26.04 ships only Python 3.14), the system libraries the venv loads, the prebuilt `hsa-gentle-wait` shim and
+`librocm_smi64.so.7` from AMD's `rocm-smi-lib` package (onnxruntime's ROCm provider needs it, e.g. for face swap).
+
+There is no compiler in the image, so a custom node whose pip dependency only ships source cannot be built inside
+the container. An existing venv created with another image keeps working when its Python minor version matches.
+
+ComfyUI writes generated images to `data/output` (`/root/comfyui/output` in the container).
+
+Personal settings go in `conf/.env` (all instances) or `conf/.env.<DOCKER_INSTANCE>`, e.g. `conf/.env.comfyui`.
+`functions.sh` reads them after the quadlet/compose environment, so they override its defaults without editing
+tracked files. Both are gitignored; `conf/.env.example` lists the supported settings.
+
 ### Run locally (no Docker)
 
 You can also run without containers using the helper script:
@@ -41,6 +65,10 @@ You can customize behavior via a `.env` file at the repo root (auto-loaded) or b
 - `ROCM_VERSION` (`nightly`, `release`, or `cpuonly`; default `nightly` for local run)
 - `ROOT_DIR` (default `${PWD}/data/home-local`)
 - `COMFYUI_PORT` (default `31490`)
+
+run-local.sh also reads `conf/.env` and `conf/.env.local-comfyui`, like the containers. It does not set the
+memory settings of the ComfyUI quadlet, so on a box that is short of RAM copy them there, e.g.
+`DISABLE_PINNED_MEMORY=1`, `MMAP_TORCH=1`, `HIGH_VRAM=1`, `GPU_PINNED_MIN_XFER_SIZE=100000` (see `conf/.env.example`).
 
 Example non-interactive run on CPU-only:
 

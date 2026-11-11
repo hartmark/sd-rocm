@@ -1,0 +1,3 @@
+# Build context for podman-quadlets/Dockerfile: only what it COPYs.
+*
+!conf/hsa-gentle-wait.c
