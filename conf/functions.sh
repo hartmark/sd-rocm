@@ -60,11 +60,17 @@ has_rocm() {
   echo "GFX_NAME = $GFX_NAME"
 
   case "${GFX_NAME}" in
-    gfx1101 | gfx1100)
-      export HSA_OVERRIDE_GFX_VERSION="11.0.0"
-      ;;
-    gfx1200)
-      export HSA_OVERRIDE_GFX_VERSION="12.0.0"
+    gfx*)
+      # TheRock nightly wheels ship kernels per architecture (torch[device-<gfx>], see
+      # install_rocm_torch), so the GPU must run as itself: overriding gfx1101 to 11.0.0 makes it
+      # look for gfx1100 kernels and every launch fails with hipErrorInvalidKernelFile. Only the
+      # repo.radeon.com release wheels need the family override.
+      if [[ "${ROCM_VERSION}" == release ]]; then
+        case "${GFX_NAME}" in
+          gfx1100 | gfx1101) export HSA_OVERRIDE_GFX_VERSION="11.0.0" ;;
+          gfx1200 | gfx1201) export HSA_OVERRIDE_GFX_VERSION="12.0.0" ;;
+        esac
+      fi
       ;;
     *)
       if [[ "${ROCM_VERSION}" != cpuonly ]]; then
@@ -89,6 +95,11 @@ try:
     if cuda_available:
         print("CUDA device count:", torch.cuda.device_count())
         print("CUDA device name:", torch.cuda.get_device_name(0))
+        # is_available() is also true when torch has no kernels for this GPU; launch one.
+        x = torch.ones(256, 256, device="cuda", dtype=torch.float16)
+        if (x @ x).float().sum().item() != 256.0 ** 3:
+            raise RuntimeError("GPU kernel test returned a wrong result")
+        print("GPU kernel test: ok")
     else:
         print("No CUDA device found")
         sys.exit(1)
@@ -256,15 +267,13 @@ install_rocm_torch() {
       # headroom + dropping --cache-none. Set e.g. TORCH_NIGHTLY_DATE=20260831 to pin.
       # NOTE: the whl-next index only keeps ~10 days, so old dates 404.
       TORCH_NIGHTLY_DATE="${TORCH_NIGHTLY_DATE-}"
+      # torch/torchvision expose one extra per architecture (device-gfx1100, device-gfx1101,
+      # device-gfx1200, ...). They pull in amd-torch-device-<gfx> and rocm-sdk-device-<gfx>, the
+      # GPU kernels. pip only warns about an unknown extra, so a wrong name installs torch without
+      # kernels (the former "device-gfx110x" did that on RDNA3); has_cuda's kernel test catches it.
       case "${GFX_NAME}" in
-        gfx1100 | gfx1101)
-          DEVICE_EXTRA="device-gfx110x"
-          ;;
-        gfx1200)
-          DEVICE_EXTRA="device-gfx1200"
-          ;;
-        gfx1201)
-          DEVICE_EXTRA="device-gfx1201"
+        gfx*)
+          DEVICE_EXTRA="device-${GFX_NAME}"
           ;;
       *)
         echo "GFX version detection error: ${GFX_NAME}" >&2
