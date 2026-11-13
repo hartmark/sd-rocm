@@ -602,6 +602,14 @@ launch_comfyui() {
 
   if [[ "${CACHE_NONE}" == "1" || "${CACHE_NONE}" == "true" ]]; then
     ARGS+=("--cache-none")
+  elif [[ -n "${CACHE_RAM-0}" ]]; then
+    # ComfyUI's default RAM-pressure cache evicts cached node outputs, including the loaded
+    # models of the running workflow, whenever free RAM drops below 10 % of RAM (2-10 GB).
+    # The next prompt then reloads every model from disk, which costs far more than letting
+    # the kernel swap: on a 62 GB host with 46 GB of memory pressure, warm images went from
+    # 15 s to 33-42 s with the default and stayed at 15 s with --cache-ram 0.5. 0 never
+    # evicts active entries. Set CACHE_RAM= (empty) for ComfyUI's default.
+    ARGS+=("--cache-ram" "${CACHE_RAM-0}")
   fi
 
   if [[ "${MMAP_TORCH}" == "1" || "${MMAP_TORCH}" == "true" ]]; then
