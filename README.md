@@ -70,6 +70,10 @@ run-local.sh also reads `conf/.env` and `conf/.env.local-comfyui`, like the cont
 memory settings of the ComfyUI quadlet, so on a box that is short of RAM copy them there, e.g.
 `DISABLE_PINNED_MEMORY=1`, `MMAP_TORCH=1`, `HIGH_VRAM=1`, `GPU_PINNED_MIN_XFER_SIZE=100000` (see `conf/.env.example`).
 
+`CACHE_RAM` (default `0`) is passed as `--cache-ram`. ComfyUI's default evicts the loaded models of the running
+workflow whenever free RAM drops below 10 % of RAM, and the next prompt reloads them from disk; with `0` it never
+does, and memory pressure is left to the kernel (swap/zram). `CACHE_RAM=` (empty) restores ComfyUI's default.
+
 Example non-interactive run on CPU-only:
 
 ```
